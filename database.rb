@@ -1,20 +1,17 @@
 class Database
   def self.get(create=true)
     unless @db
-      p "ininciando db de fiis..."
       begin
         @db = SQLite3::Database.open 'fiis.db'
-        p @db.get_first_value 'SELECT SQLITE_VERSION()'
         create_tables() if create
       rescue SQLite3::Exception => e 
-        p "Exception occurred"
         p e
       end
     end
     @db
   end
 
-  def self.insertFii(data)
+  def self.insert_fii(data)
     begin
       query = '''INSERT INTO Fii(
                   codigo, 
@@ -26,8 +23,15 @@ class Database
                   num_cotas, 
                   num_cotistas, 
                   cnpj, 
-                  taxas) 
-                  VALUES(?,?,?,?,?,?,?,?,?,?)'''
+                  taxas,
+                  preco_cota,
+                  dividend_yeild_aux,
+                  ultimo_rendimento,
+                  patrimonio_liquido,
+                  patrimonio_liquido_base,
+                  valor_patrimonial,
+                  num_negociacoes)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
       
       stm = get.prepare query
       stm.bind_param 1, data.cod
@@ -40,17 +44,25 @@ class Database
       stm.bind_param 8, data.num_cotistas
       stm.bind_param 9, data.cnpj
       stm.bind_param 10, data.taxas
+      stm.bind_param 11, data.preco_cota
+      stm.bind_param 12, data.dividend_yeild_aux
+      stm.bind_param 13, data.ultimo_rendimento
+      stm.bind_param 14, data.patrimonio_liquido
+      stm.bind_param 15, data.patrimonio_liquido_base
+      stm.bind_param 16, data.valor_patrimonial
+      stm.bind_param 17, data.num_negociacoes
       stm.execute
       stm.close
-      p "inserido #{data} na tabela fii"
       (get.execute "SELECT ID FROM Fii WHERE codigo LIKE '#{data.cod}'").first.first
     rescue SQLite3::Exception => e 
       p e
     end
   end
 
-  def self.insertDy(data)
+  def self.insert_dy(row, fii_id)
     begin
+      data = Dy.serializableSite(row)
+      data.fii_id = fii_id
       query = '''INSERT INTO Dys(
                   dy,
                   fii_id, 
@@ -65,43 +77,90 @@ class Database
       stm.bind_param 4, data.data_pagamento.to_s
       stm.bind_param 5, data.cotacao_base
       stm.bind_param 6, data.rendimento
-      id = -1
       $semaphore.synchronize {
-        test = stm.execute
-        stm.close
-        id = get.last_insert_row_id
-        p "inserido dy de id #{id}"
+        stm.execute
+        data.id = get.last_insert_row_id
       }
-      id
-    rescue SQLite3::Exception => e 
-      p e 
+    rescue Exception => e 
+      p "ERROR #{e}"
+      return nil
     end
+
+    return data
   end
 
-  def self.fiis()
-    fiis = []
+  def self.find_dy_from_data_base(data_base, fii_id)
+    query = "SELECT * FROM dys WHERE data_base = ? AND fii_id = ?"
+    dy = nil
     begin
-      query_search = "SELECT * FROM Fii"
-      stm = get.execute query_search
-      stm.each { |fii|
-        _fii = Fii.serializable(fii)
-        fiis.append(_fii)
-      }
-    rescue SQLite3::Exception => e 
-      p e
+      stm = get.prepare query
+      stm.bind_param 1, data_base
+      stm.bind_param 2, fii_id
+      rs = stm.execute
+      result = rs.next
+      while result
+        dy = Dy.serializable(result)
+        result = rs.next
+      end
+      stm.close
+    rescue Exception => e
+      p "ERROR: #{e}"
+      return nil
     end
-    fiis
+
+    return dy
   end
 
-  def self.get_dy(dy)
-    query = "SELECT * FROM dys WHERE data_base = ? and fii_id = ?"
-    stm = get.prepare query
-    stm.bind_param 1, dy.data_base.to_s
-    stm.bind_param 2, dy.fii_id
-    return !stm.execute.next.nil?
+  def self.find_all_fiis
+    fiis = all("fii")
+    return fiis.map { |fii| Fii.serializable(fii) }
+  end
+
+  def self.find_all_dys
+    dys = all("dys")
+    return dys.map { |dy| Dy.serializable(dy) }
+  end
+
+  def self.find_all_dys_from_fii_id(fii_id)
+    query = "SELECT * FROM dys WHERE fii_id = ?"
+    dys = []
+    begin
+      stm = get.prepare query
+      stm.bind_param 1, fii_id
+      rs = stm.execute
+      result = rs.next
+      while rs.next
+        dys.append(Dy.serializable(result))
+        result = rs.next
+      end
+
+      stm.close
+    rescue Exception => e
+      p "ERROR: #{e}"
+      return []
+    end
+
+    return dys
   end
 
   private
+
+  def self.all(table_name)
+    query = "SELECT * FROM #{table_name} "
+    objects = []
+    threads = []
+    
+    begin
+      stm = get.execute query
+      stm.each { |row| threads << Thread.new { objects.append(row) } }
+      threads.each(&:join)
+    rescue SQLite3::Exception => e 
+      p "Erro ao fazer a busca de todos os elementos da tabela #{table_name}"
+      return []
+    end
+
+    return objects
+  end
 
   def self.create_tables
     query_table_fii = '''CREATE TABLE IF NOT EXISTS Fii(
@@ -115,7 +174,14 @@ class Database
                           num_cotas DOUBLE,
                           num_cotistas INTEGER,
                           cnpj VARCHAR(25),
-                          taxas TEXT);'''
+                          taxas TEXT,
+                          dividend_yeild_aux DOUBLE,
+                          ultimo_rendimento DOUBLE,
+                          patrimonio_liquido DOUBLE,
+                          patrimonio_liquido_base VARCHAR(1),
+                          valor_patrimonial DOUBLE,
+                          preco_cota DOUBLE,
+                          num_negociacoes INTEGER);'''
 
     query_table_dys = '''CREATE TABLE IF NOT EXISTS Dys(
                           id INTEGER PRIMARY KEY AUTOINCREMENT,
