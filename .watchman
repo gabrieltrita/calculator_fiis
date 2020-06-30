@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# kill off old version, avoid killing random ruby processes
+pkill -f 'calcular_dy.rb'
+# run it again but don't wait for it to finish
+ruby calcular_dy.rb &
+disown

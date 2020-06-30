@@ -3,10 +3,10 @@ class Dy
 
   def initialize(id=nil, value=0.0, fii_id=nil, data_base=nil, data_pagamento=nil, cotacao_base=0.0, rendimento=0.0)
     @id = id
-    @value = value.gsub(/\s+/, "")
+    @value = value.gsub(/\s+/, "")[0..-2]
     @fii_id = fii_id
-    @data_base = Date.strptime(data_base, '%d/%m/%y')
-    @data_pagamento = Date.strptime(data_pagamento, '%d/%m/%y')
+    @data_base = Time.parse(data_base)
+    @data_pagamento = Time.parse(data_pagamento)
     @cotacao_base = Monetize.parse(cotacao_base).to_f
     @rendimento = Monetize.parse(rendimento).to_f
   end
